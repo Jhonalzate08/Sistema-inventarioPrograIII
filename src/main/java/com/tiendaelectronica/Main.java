@@ -1,17 +1,133 @@
 package com.tiendaelectronica;
 
-//TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
-// click the <icon src="AllIcons.Actions.Execute"/> icon in the gutter.
-public class Main {
-    public static void main(String[] args) {
-        //TIP Press <shortcut actionId="ShowIntentionActions"/> with your caret at the highlighted text
-        // to see how IntelliJ IDEA suggests fixing it.
-        System.out.printf("Hello and welcome!");
+import com.github.javafaker.Faker;
+import com.tiendaelectronica.model.Usuario;
+import com.tiendaelectronica.model.Producto;
+import com.tiendaelectronica.service.InventarioService;
+import com.tiendaelectronica.service.PDFGeneratorService;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-        for (int i = 1; i <= 5; i++) {
-            //TIP Press <shortcut actionId="Debug"/> to start debugging your code. We have set one <icon src="AllIcons.Debugger.Db_set_breakpoint"/> breakpoint
-            // for you, but you can always add more by pressing <shortcut actionId="ToggleLineBreakpoint"/>.
-            System.out.println("i = " + i);
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Scanner;
+import java.util.Locale;
+
+public class Main {
+    private static final Logger logger = LogManager.getLogger(Main.class);
+    private static final Scanner scanner = new Scanner(System.in);
+    private static final InventarioService inventarioService = new InventarioService();
+    private static final PDFGeneratorService pdfService = new PDFGeneratorService();
+    private static final List<Usuario> usuarios = new ArrayList<>();
+
+    public static void main(String[] args) {
+        generarUsuarios();
+
+        while (true) {
+            try {
+                mostrarMenu();
+                int opcion = Integer.parseInt(scanner.nextLine());
+
+                switch (opcion) {
+                    case 1:
+                        mostrarProductos();
+                        break;
+                    case 2:
+                        realizarCompra();
+                        break;
+                    case 3:
+                        mostrarUsuarios();
+                        break;
+                    case 4:
+                        logger.info("Saliendo del sistema...");
+                        return;
+                    default:
+                        logger.warn("Opción no válida");
+                }
+            } catch (Exception e) {
+                logger.error("Error: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void generarUsuarios() {
+        Faker faker = new Faker(new Locale("es"));
+        for (int i = 0; i < 20; i++) {
+            String cedula = String.format("%08d", faker.number().numberBetween(10000000, 99999999));
+            usuarios.add(new Usuario(
+                    cedula,
+                    faker.name().firstName(),
+                    faker.name().lastName(),
+                    faker.internet().emailAddress()
+            ));
+        }
+        logger.info("Se generaron 20 usuarios de prueba");
+    }
+
+    private static void mostrarMenu() {
+        logger.info("\n=== MENÚ PRINCIPAL ===");
+        logger.info("1. Ver productos disponibles");
+        logger.info("2. Realizar compra");
+        logger.info("3. Ver usuarios");
+        logger.info("4. Salir");
+        logger.info("Seleccione una opción: ");
+    }
+
+    private static void mostrarProductos() {
+        logger.info("\n=== PRODUCTOS DISPONIBLES ===");
+        for (Producto producto : inventarioService.listarProductos()) {
+            logger.info(producto.toString());
+        }
+    }
+
+    private static void mostrarUsuarios() {
+        logger.info("\n=== USUARIOS REGISTRADOS ===");
+        for (Usuario usuario : usuarios) {
+            logger.info(String.format("ID: %s, Nombre: %s %s, Cédula: %s",
+                    usuario.getId(), usuario.getNombre(), usuario.getApellido(), usuario.getCedula()));
+        }
+    }
+
+    private static void realizarCompra() {
+        try {
+            logger.info("Ingrese la cédula del usuario: ");
+            String cedula = scanner.nextLine();
+
+            Usuario usuario = usuarios.stream()
+                    .filter(u -> u.getCedula().equals(cedula))
+                    .findFirst()
+                    .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+            while (true) {
+                mostrarProductos();
+                logger.info("\nIngrese el ID del producto (o 'fin' para terminar): ");
+                String productoId = scanner.nextLine();
+
+                if (productoId.equalsIgnoreCase("fin")) {
+                    break;
+                }
+
+                Producto producto = inventarioService.obtenerProducto(productoId);
+                if (producto == null) {
+                    logger.warn("Producto no encontrado");
+                    continue;
+                }
+
+                if (producto.getStock() > 0) {
+                    usuario.agregarAlCarrito(producto);
+                    inventarioService.actualizarStock(productoId, 1);
+                    logger.info("Producto agregado al carrito");
+                } else {
+                    logger.warn("Producto sin stock disponible");
+                }
+            }
+
+            if (!usuario.getCarrito().isEmpty()) {
+                pdfService.generarFactura(usuario);
+                logger.info("Factura generada exitosamente");
+            }
+        } catch (Exception e) {
+            logger.error("Error al realizar la compra: " + e.getMessage());
         }
     }
 }
